@@ -1,29 +1,16 @@
 # net
 
 ## Purpose
-[Describe the purpose of this SageLang library module.]
+Networking and protocol implementation library for SageLang.
 
 ## Features
-- [Feature 1]
-- [Feature 2]
-
-## Installation
-Add as a submodule to your SageLang project:
-```bash
-git submodule add <repository-url> core/lib/net
-```
-
-## API Documentation
-[Link to detailed API documentation]
+- **Protocols**: DNS, HTTP (Request/Server), WebSocket.
+- **Core**: IP address handling, MIME types.
 
 ## Usage Example
 ```sage
-import net
-# Example usage...
+import net.request
+import net.url
+
+let resp = net.request.get(url.parse("https://api.example.com"))
 ```
-
-## Contributing
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
-
-## License
-MIT (or maintain main project license)
