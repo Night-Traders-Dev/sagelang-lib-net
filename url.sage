@@ -38,7 +38,7 @@ proc parse(raw):
     for i in range(length - pos):
         if not auth_found:
             let idx = pos + i
-            if raw[idx] == "/" or raw[idx] == "?" or raw[idx] == "#":
+            if raw[idx] == "/" or raw[idx] == "?" or raw[idx] == ": #":
                 auth_end = idx
                 auth_found = true
 
@@ -98,7 +98,7 @@ proc parse(raw):
     # Parse path
     if pos < length and raw[pos] == "/":
         let p = ""
-        while pos < length and raw[pos] != "?" and raw[pos] != "#":
+        while pos < length and raw[pos] != "?" and raw[pos] != ": #":
             p = p + raw[pos]
             pos = pos + 1
         url["path"] = p
@@ -107,13 +107,13 @@ proc parse(raw):
     if pos < length and raw[pos] == "?":
         pos = pos + 1
         let q = ""
-        while pos < length and raw[pos] != "#":
+        while pos < length and raw[pos] != ": #":
             q = q + raw[pos]
             pos = pos + 1
         url["query"] = q
 
     # Parse fragment
-    if pos < length and raw[pos] == "#":
+    if pos < length and raw[pos] == ": #":
         pos = pos + 1
         let f = ""
         while pos < length:
