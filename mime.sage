@@ -120,15 +120,10 @@ proc from_filename(filename):
             last_dot = i
     if last_dot < 0:
         return "application/octet-stream"
-    let ext = ""
+    let ext_parts = []
     for i in range(len(filename) - last_dot - 1):
-        let c = filename[last_dot + 1 + i]
-        let code = ord(c)
-        if code >= 65 and code <= 90:
-            ext = ext + chr(code + 32)
-        else:
-            ext = ext + c
-    return lookup(ext)
+        push(ext_parts, filename[last_dot + 1 + i])
+    return lookup(lower(join(ext_parts, "")))
 
 # Check if a MIME type is text-based
 @inline

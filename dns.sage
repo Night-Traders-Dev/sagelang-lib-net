@@ -2,9 +2,13 @@
 # Parses raw DNS wire-format messages into structured data
 
 proc read_u16_be(bs, off):
+    if off + 1 >= len(bs):
+        return 0
     return bs[off] * 256 + bs[off + 1]
 
 proc read_u32_be(bs, off):
+    if off + 3 >= len(bs):
+        return 0
     return bs[off] * 16777216 + bs[off + 1] * 65536 + bs[off + 2] * 256 + bs[off + 3]
 
 # DNS record types
@@ -74,7 +78,7 @@ proc rcode_name(code):
 
 # Read a DNS name from the message (handles compression pointers)
 proc read_name(bs, off):
-    let name = ""
+    let parts = []
     let pos = off
     let total_read = 0
     let jumped = false
@@ -88,11 +92,13 @@ proc read_name(bs, off):
         if label_len == 0:
             if not jumped:
                 total_read = total_read + 1
+            let name = join(parts, ".")
             return {"name": name, "bytes_read": total_read}
 
         # Compression pointer (top 2 bits set)
         if (label_len & 192) == 192:
             if pos + 1 >= len(bs):
+                let name = join(parts, ".")
                 return {"name": name, "bytes_read": total_read}
             let ptr = ((label_len & 63) * 256) + bs[pos + 1]
             if not jumped:
@@ -100,17 +106,24 @@ proc read_name(bs, off):
             jumped = true
             pos = ptr
         else:
+            # Illegal label length (64-127, not compression, not regular)
+            if label_len >= 64:
+                let name = join(parts, ".")
+                return {"name": name, "bytes_read": total_read}
             # Regular label
             if not jumped:
                 total_read = total_read + 1 + label_len
             pos = pos + 1
-            if len(name) > 0:
-                name = name + "."
+            if pos + label_len > len(bs):
+                let name = join(parts, ".")
+                return {"name": name, "bytes_read": total_read}
+            let label_parts = []
             for i in range(label_len):
-                if pos + i < len(bs):
-                    name = name + chr(bs[pos + i])
+                push(label_parts, chr(bs[pos + i]))
+            push(parts, join(label_parts, ""))
             pos = pos + label_len
 
+    let name = join(parts, ".")
     return {"name": name, "bytes_read": total_read}
 
 # Parse DNS message header (12 bytes)
@@ -167,63 +180,73 @@ proc parse_message(bs):
     msg["questions"] = questions
 
     # Parse resource records (answers, authority, additional)
-    proc parse_rrs(count):
+    proc parse_rrs(count, start_pos):
         let rrs = []
+        let cp = start_pos
         for i in range(count):
-            if pos >= len(bs):
-                return rrs
-            let nr2 = read_name(bs, pos)
-            pos = pos + nr2["bytes_read"]
-            if pos + 10 > len(bs):
-                return rrs
+            if cp >= len(bs):
+                return {"rrs": rrs, "pos": cp}
+            let nr2 = read_name(bs, cp)
+            cp = cp + nr2["bytes_read"]
+            if cp + 10 > len(bs):
+                return {"rrs": rrs, "pos": cp}
             let rr = {}
             rr["name"] = nr2["name"]
-            rr["type"] = read_u16_be(bs, pos)
-            rr["type_name"] = type_name(read_u16_be(bs, pos))
-            rr["class"] = read_u16_be(bs, pos + 2)
-            rr["ttl"] = read_u32_be(bs, pos + 4)
-            let rdlength = read_u16_be(bs, pos + 8)
-            pos = pos + 10
+            rr["type"] = read_u16_be(bs, cp)
+            rr["type_name"] = type_name(read_u16_be(bs, cp))
+            rr["class"] = read_u16_be(bs, cp + 2)
+            rr["ttl"] = read_u32_be(bs, cp + 4)
+            let rdlength = read_u16_be(bs, cp + 8)
+            cp = cp + 10
             rr["rdlength"] = rdlength
 
             # Parse rdata based on type
             if rr["type"] == 1 and rdlength == 4:
-                rr["address"] = str(bs[pos]) + "." + str(bs[pos + 1]) + "." + str(bs[pos + 2]) + "." + str(bs[pos + 3])
+                rr["address"] = str(bs[cp]) + "." + str(bs[cp + 1]) + "." + str(bs[cp + 2]) + "." + str(bs[cp + 3])
             if rr["type"] == 5 or rr["type"] == 2 or rr["type"] == 12:
-                let cnr = read_name(bs, pos)
+                let cnr = read_name(bs, cp)
                 rr["target"] = cnr["name"]
             if rr["type"] == 15:
-                rr["preference"] = read_u16_be(bs, pos)
-                let mnr = read_name(bs, pos + 2)
+                rr["preference"] = read_u16_be(bs, cp)
+                let mnr = read_name(bs, cp + 2)
                 rr["exchange"] = mnr["name"]
             if rr["type"] == 28 and rdlength == 16:
-                # IPv6 address
-                let parts = []
+                let iparts = []
                 for j in range(8):
-                    push(parts, read_u16_be(bs, pos + j * 2))
-                rr["address_parts"] = parts
+                    push(iparts, read_u16_be(bs, cp + j * 2))
+                rr["address_parts"] = iparts
             if rr["type"] == 16:
-                # TXT record
-                let txt = ""
-                let tpos = pos
-                while tpos < pos + rdlength:
+                let txt_parts = []
+                let tpos = cp
+                while tpos < cp + rdlength:
                     let tlen = bs[tpos]
                     tpos = tpos + 1
+                    let chunk_parts = []
                     for j in range(tlen):
                         if tpos + j < len(bs):
-                            txt = txt + chr(bs[tpos + j])
+                            push(chunk_parts, chr(bs[tpos + j]))
+                    push(txt_parts, join(chunk_parts, ""))
                     tpos = tpos + tlen
-                rr["text"] = txt
+                rr["text"] = join(txt_parts, "")
 
-            # Store raw rdata
             let rdata = []
             for j in range(rdlength):
-                if pos + j < len(bs):
-                    push(rdata, bs[pos + j])
+                if cp + j < len(bs):
+                    push(rdata, bs[cp + j])
             rr["rdata"] = rdata
-            pos = pos + rdlength
+            cp = cp + rdlength
             push(rrs, rr)
-        return rrs
+        return {"rrs": rrs, "pos": cp}
+
+    let ans_result = parse_rrs(hdr["ancount"], pos)
+    msg["answers"] = ans_result["rrs"]
+    pos = ans_result["pos"]
+    let auth_result = parse_rrs(hdr["nscount"], pos)
+    msg["authority"] = auth_result["rrs"]
+    pos = auth_result["pos"]
+    let add_result = parse_rrs(hdr["arcount"], pos)
+    msg["additional"] = add_result["rrs"]
+    pos = add_result["pos"]
 
     msg["answers"] = parse_rrs(hdr["ancount"])
     msg["authority"] = parse_rrs(hdr["nscount"])

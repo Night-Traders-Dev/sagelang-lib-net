@@ -118,36 +118,83 @@ proc parse_request(raw):
                 header_line = header_line + c
         pos = h_end + 1
         if len(header_line) == 0:
-            pos = h_end + 1
-            # Rest is body
-            let body = ""
-            while pos < len(raw):
-                body = body + raw[pos]
-                pos = pos + 1
-            req["body"] = body
-            return req
+            break
         # Parse "Key: Value"
         let colon = -1
         for i in range(len(header_line)):
             if colon < 0 and header_line[i] == ":":
                 colon = i
         if colon > 0:
-            let key = ""
+            let key_parts = []
             for i in range(colon):
                 let c = header_line[i]
                 let code = ord(c)
                 if code >= 65 and code <= 90:
-                    key = key + chr(code + 32)
+                    push(key_parts, chr(code + 32))
                 else:
-                    key = key + c
-            let val = ""
+                    push(key_parts, c)
+            let key = join(key_parts, "")
+            let val_parts = []
             let start = colon + 1
             while start < len(header_line) and header_line[start] == " ":
                 start = start + 1
             for i in range(len(header_line) - start):
-                val = val + header_line[start + i]
+                push(val_parts, header_line[start + i])
+            let val = join(val_parts, "")
             req["headers"][key] = val
 
+    # Read body (chunked or raw)
+    if req["headers"]["transfer-encoding"] == "chunked":
+        let body_parts = []
+        while pos < len(raw):
+            let size_end = pos
+            while size_end < len(raw) and raw[size_end] != chr(10):
+                size_end = size_end + 1
+            let size_line_parts = []
+            for i in range(size_end - pos):
+                let c = raw[pos + i]
+                if c != chr(13):
+                    push(size_line_parts, c)
+            let size_line = join(size_line_parts, "")
+            pos = size_end + 1
+            if len(size_line) == 0:
+                req["body"] = join(body_parts, "")
+                return req
+            let chunk_size = 0
+            for i in range(len(size_line)):
+                let c = ord(size_line[i])
+                let val = -1
+                if c >= 48 and c <= 57:
+                    val = c - 48
+                elif c >= 65 and c <= 70:
+                    val = c - 55
+                elif c >= 97 and c <= 102:
+                    val = c - 87
+                if val >= 0:
+                    chunk_size = chunk_size * 16 + val
+            if chunk_size == 0:
+                req["body"] = join(body_parts, "")
+                return req
+            if pos + chunk_size <= len(raw):
+                for i in range(chunk_size):
+                    push(body_parts, raw[pos + i])
+                pos = pos + chunk_size
+                if pos < len(raw) and raw[pos] == chr(13):
+                    pos = pos + 1
+                if pos < len(raw) and raw[pos] == chr(10):
+                    pos = pos + 1
+            else:
+                req["body"] = join(body_parts, "")
+                return req
+        req["body"] = join(body_parts, "")
+        return req
+
+    # Non-chunked body (remaining raw data)
+    let body_parts = []
+    while pos < len(raw):
+        push(body_parts, raw[pos])
+        pos = pos + 1
+    req["body"] = join(body_parts, "")
     return req
 
 # Route table: maps method+path to handler functions

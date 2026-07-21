@@ -2,6 +2,9 @@
 # Frame building/parsing per RFC 6455
 # Use with native socket/tcp modules for transport
 
+import crypto.hash as hash
+import crypto.encoding
+
 # WebSocket opcodes
 let OP_CONTINUATION = 0
 let OP_TEXT = 1
@@ -126,6 +129,9 @@ proc parse_frame(bs, off):
     if plen == 127:
         if off + 10 > len(bs):
             return nil
+        let hi32 = bs[off + 2] * 16777216 + bs[off + 3] * 65536 + bs[off + 4] * 256 + bs[off + 5]
+        if hi32 != 0:
+            return nil
         plen = bs[off + 6] * 16777216 + bs[off + 7] * 65536 + bs[off + 8] * 256 + bs[off + 9]
         header_size = 10
 
@@ -158,20 +164,20 @@ proc parse_frame(bs, off):
 
 # Convert payload bytes to string
 proc payload_to_string(payload):
-    let result = ""
+    let parts = []
     for i in range(len(payload)):
-        result = result + chr(payload[i])
-    return result
+        push(parts, chr(payload[i]))
+    return join(parts, "")
 
 # Generate the WebSocket upgrade response headers
-# sec_key is the Sec-WebSocket-Key from the client
 proc upgrade_response(sec_key):
-    # In a real implementation, we'd compute SHA-1 of key+GUID and base64 encode.
-    # Here we provide the response template.
+    let combined = sec_key + "258EAFA5-E914-47DA-95CA-5AB9B8C7B5B6"
+    let h = hash.sha1(hash.string_to_bytes(combined))
+    let accept = crypto.encoding.b64_encode(h)
     let resp = "HTTP/1.1 101 Switching Protocols" + chr(13) + chr(10)
     resp = resp + "Upgrade: websocket" + chr(13) + chr(10)
     resp = resp + "Connection: Upgrade" + chr(13) + chr(10)
-    resp = resp + "Sec-WebSocket-Accept: " + sec_key + chr(13) + chr(10)
+    resp = resp + "Sec-WebSocket-Accept: " + accept + chr(13) + chr(10)
     resp = resp + chr(13) + chr(10)
     return resp
 

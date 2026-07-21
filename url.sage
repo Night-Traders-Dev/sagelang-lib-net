@@ -259,7 +259,6 @@ proc resolve(base_url, relative):
         base["query"] = ""
         base["fragment"] = ""
     else:
-        # Relative to current path directory
         let dir = ""
         let last_slash = 0
         for i in range(len(base["path"])):
@@ -267,7 +266,29 @@ proc resolve(base_url, relative):
                 last_slash = i
         for i in range(last_slash + 1):
             dir = dir + base["path"][i]
-        base["path"] = dir + relative
+        let combined = dir + relative
+        let parts = []
+        let current = ""
+        for i in range(len(combined)):
+            if combined[i] == "/":
+                if current == "..":
+                    if len(parts) > 0:
+                        pop(parts)
+                elif current != "" and current != ".":
+                    push(parts, current)
+                elif len(parts) == 0 and current == "":
+                    push(parts, "")
+                current = ""
+            else:
+                current = current + combined[i]
+        if current == "..":
+            if len(parts) > 0:
+                pop(parts)
+        elif current != "" and current != ".":
+            push(parts, current)
+        base["path"] = join(parts, "/")
+        if not startswith(base["path"], "/"):
+            base["path"] = "/" + base["path"]
         base["query"] = ""
         base["fragment"] = ""
     return build(base)
