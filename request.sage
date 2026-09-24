@@ -2,6 +2,7 @@
 # High-level wrapper around the native http module with fluent API
 
 import http
+import json
 
 # HTTP methods
 let GET = "GET"
@@ -35,7 +36,10 @@ proc set_body(req, body):
 
 # Set JSON body (auto-sets content-type)
 proc set_json(req, body):
-    req["body"] = body
+    if type(body) == "string":
+        req["body"] = body
+    else:
+        req["body"] = json.cJSON_PrintUnformatted(json.cJSON_FromSage(body))
     req["headers"]["Content-Type"] = "application/json"
     return req
 
@@ -118,30 +122,52 @@ proc post_json(url, body):
     set_json(req, body)
     return send(req)
 
+# Convenience: quick PUT
+proc put(url, body):
+    let req = create("PUT", url)
+    set_body(req, body)
+    return send(req)
+
+# Convenience: quick PATCH
+proc patch(url, body):
+    let req = create("PATCH", url)
+    set_body(req, body)
+    return send(req)
+
+# Convenience: quick DELETE
+proc delete(url):
+    let req = create("DELETE", url)
+    return send(req)
+
+# Convenience: quick HEAD
+proc head(url):
+    let req = create("HEAD", url)
+    return send(req)
+
 # Check if response was successful (2xx)
 proc is_ok(resp):
-    if resp == nil:
+    if resp == nil or not dict_has(resp, "status"):
         return false
     let status = resp["status"]
     return status >= 200 and status < 300
 
 # Check if response is a redirect
 proc is_redirect(resp):
-    if resp == nil:
+    if resp == nil or not dict_has(resp, "status"):
         return false
     let status = resp["status"]
     return status >= 300 and status < 400
 
 # Check if response is a client error
 proc is_client_error(resp):
-    if resp == nil:
+    if resp == nil or not dict_has(resp, "status"):
         return false
     let status = resp["status"]
     return status >= 400 and status < 500
 
 # Check if response is a server error
 proc is_server_error(resp):
-    if resp == nil:
+    if resp == nil or not dict_has(resp, "status"):
         return false
     let status = resp["status"]
     return status >= 500

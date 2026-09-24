@@ -257,12 +257,12 @@ proc handle_client(srv, client):
 # Start the server (blocking - serves one request at a time)
 proc listen_and_serve(srv):
     let listener = tcp.listen(srv["host"], srv["port"])
-    if listener == nil:
+    if listener < 0:
         return false
     srv["running"] = true
     while srv["running"]:
         let client = tcp.accept(listener)
-        if client != nil:
+        if client >= 0:
             handle_client(srv, client)
     tcp.close(listener)
     return true
