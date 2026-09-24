@@ -248,9 +248,6 @@ proc parse_message(bs):
     msg["additional"] = add_result["rrs"]
     pos = add_result["pos"]
 
-    msg["answers"] = parse_rrs(hdr["ancount"])
-    msg["authority"] = parse_rrs(hdr["nscount"])
-    msg["additional"] = parse_rrs(hdr["arcount"])
     return msg
 
 # Encode a domain name for DNS wire format
